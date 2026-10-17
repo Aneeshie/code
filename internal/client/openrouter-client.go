@@ -66,7 +66,7 @@ func convertResponse(message components.ChatAssistantMessage) Response {
 
 func convertToChatRequest(messages []Message) components.ChatRequest {
 	var msgs []components.ChatMessages
-	model := "openrouter/free"
+	model := "nvidia/nemotron-3.5-super-vl:free"
 
 	for _, message := range messages {
 		var msg components.ChatMessages

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/Aneeshie/zerrcode/internal/client"
 	"github.com/joho/godotenv"
@@ -23,33 +25,68 @@ func main() {
 	var clnt client.LLMClient = client.NewOpenRouterClient(apiKey)
 
 	ctx := context.Background()
+	scanner := bufio.NewScanner(os.Stdin)
 
-	messages := []client.Message{
+	history := []client.Message{
 		{
 			Role:    client.RoleSystem,
 			Content: "You are a helpful coding assistant. Keep your answers concise.",
 		},
-		{
-			Role:    client.RoleUser,
-			Content: "Explain what a goroutine is in Go in 3 sentences.",
-		},
 	}
 
-	res, err := clnt.Send(ctx, messages)
-	if err != nil {
-		log.Fatalf("Failed to send request: %v", err)
-	}
+	fmt.Println("zerrcode — type 'exit' to quit.")
 
-	fmt.Println(res.Content)
+	for {
+		fmt.Print("\nzerrcode > ")
 
-	if len(res.ToolCalls) > 0 {
-		fmt.Printf("\nModel requested %d tool call(s):\n", len(res.ToolCalls))
-		for _, toolCall := range res.ToolCalls {
-			fmt.Printf("- %s (ID: %s, arguments: %s)\n",
-				toolCall.Name,
-				toolCall.ID,
-				toolCall.Arguments,
-			)
+		if !scanner.Scan() {
+			break
 		}
+
+		input := strings.TrimSpace(scanner.Text())
+
+		if input == "exit" {
+			fmt.Println("Goodbye!")
+			break
+		}
+
+		if input == "" {
+			continue
+		}
+
+		history = append(history, client.Message{
+			Role:    client.RoleUser,
+			Content: input,
+		})
+
+		res, err := clnt.Send(ctx, history)
+		if err != nil {
+			log.Printf("Request failed: %v", err)
+			continue
+		}
+
+		history = append(history, client.Message{
+			Role:      client.RoleAssistant,
+			Content:   res.Content,
+			ToolCalls: res.ToolCalls,
+		})
+
+		fmt.Println(res.Content)
+
+		if len(res.ToolCalls) > 0 {
+			fmt.Printf("\nModel requested %d tool call(s):\n", len(res.ToolCalls))
+
+			for _, toolCall := range res.ToolCalls {
+				fmt.Printf("- %s (ID: %s, arguments: %s)\n",
+					toolCall.Name,
+					toolCall.ID,
+					toolCall.Arguments,
+				)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Input error: %v", err)
 	}
 }
