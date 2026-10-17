@@ -28,6 +28,12 @@ type ToolCall struct {
 	Arguments string
 }
 
+type StreamEvent struct {
+	ID      string
+	Message Message
+	Err     error
+}
+
 type LLMClient interface {
 	Send(ctx context.Context, messages []Message) (*Response, error)
 	Stream(ctx context.Context, messages []Message, onText func(string)) error

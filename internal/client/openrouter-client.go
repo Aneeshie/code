@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	openrouter "github.com/OpenRouterTeam/go-sdk"
 	"github.com/OpenRouterTeam/go-sdk/models/components"
@@ -35,21 +36,25 @@ func (o *OpenRouterClient) Send(ctx context.Context, messages []Message) (*Respo
 
 }
 
-func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, onText func(string)) error {
+func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, onText func(string)) (*StreamEvent, error) {
 	chatReq := convertToChatRequest(messages)
 	res, err := o.Client.Chat.Send(ctx, chatReq, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if res == nil {
-		return fmt.Errorf("OpenRouter returned an empty response")
+		return nil, fmt.Errorf("OpenRouter returned an empty response")
 	}
 	if res.EventStream == nil {
-		return fmt.Errorf("OpenRouter returned no event stream")
+		return nil, fmt.Errorf("OpenRouter returned no event stream")
 	}
 
 	defer res.EventStream.Close()
+
+	var text strings.Builder
+
+	var responseID string
 
 	for res.EventStream.Next() {
 		event := res.EventStream.Value()
@@ -57,19 +62,30 @@ func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, onTex
 			continue
 		}
 
+		if responseID == "" {
+			responseID = event.Data.ID
+		}
+
 		delta := event.Data.Choices[0].Delta
 		content, ok := delta.Content.Get()
 
 		if ok && content != nil {
 			onText(*content)
+			text.WriteString(*content)
 		}
 	}
 
 	if err := res.EventStream.Err(); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return &StreamEvent{
+		ID: responseID,
+		Message: Message{
+			Role:    RoleAssistant,
+			Content: text.String(),
+		},
+	}, nil
 
 }
 
