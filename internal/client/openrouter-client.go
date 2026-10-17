@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 
 	openrouter "github.com/OpenRouterTeam/go-sdk"
 	"github.com/OpenRouterTeam/go-sdk/models/components"
@@ -31,6 +32,44 @@ func (o *OpenRouterClient) Send(ctx context.Context, messages []Message) (*Respo
 	response := convertResponse(res.ChatResult.Choices[0].Message)
 
 	return &response, nil
+
+}
+
+func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, onText func(string)) error {
+	chatReq := convertToChatRequest(messages)
+	res, err := o.Client.Chat.Send(ctx, chatReq, nil)
+	if err != nil {
+		return err
+	}
+
+	if res == nil {
+		return fmt.Errorf("OpenRouter returned an empty response")
+	}
+	if res.EventStream == nil {
+		return fmt.Errorf("OpenRouter returned no event stream")
+	}
+
+	defer res.EventStream.Close()
+
+	for res.EventStream.Next() {
+		event := res.EventStream.Value()
+		if event == nil || len(event.Data.Choices) == 0 {
+			continue
+		}
+
+		delta := event.Data.Choices[0].Delta
+		content, ok := delta.Content.Get()
+
+		if ok && content != nil {
+			onText(*content)
+		}
+	}
+
+	if err := res.EventStream.Err(); err != nil {
+		return err
+	}
+
+	return nil
 
 }
 
@@ -67,6 +106,7 @@ func convertResponse(message components.ChatAssistantMessage) Response {
 func convertToChatRequest(messages []Message) components.ChatRequest {
 	var msgs []components.ChatMessages
 	model := "nvidia/nemotron-3.5-super-vl:free"
+	stream := true
 
 	for _, message := range messages {
 		var msg components.ChatMessages
@@ -125,5 +165,6 @@ func convertToChatRequest(messages []Message) components.ChatRequest {
 	return components.ChatRequest{
 		Messages: msgs,
 		Model:    &model,
+		Stream:   &stream,
 	}
 }

@@ -59,31 +59,24 @@ func main() {
 			Content: input,
 		})
 
-		res, err := clnt.Send(ctx, history)
+		var assistantText strings.Builder
+
+		err := clnt.Stream(ctx, history, func(chunk string) {
+			fmt.Print(chunk)
+			assistantText.WriteString(chunk)
+		})
+
 		if err != nil {
-			log.Printf("Request failed: %v", err)
+			fmt.Printf("\nRequest failed: %v\n", err)
 			continue
 		}
 
+		fmt.Println()
+
 		history = append(history, client.Message{
-			Role:      client.RoleAssistant,
-			Content:   res.Content,
-			ToolCalls: res.ToolCalls,
+			Role:    client.RoleAssistant,
+			Content: assistantText.String(),
 		})
-
-		fmt.Println(res.Content)
-
-		if len(res.ToolCalls) > 0 {
-			fmt.Printf("\nModel requested %d tool call(s):\n", len(res.ToolCalls))
-
-			for _, toolCall := range res.ToolCalls {
-				fmt.Printf("- %s (ID: %s, arguments: %s)\n",
-					toolCall.Name,
-					toolCall.ID,
-					toolCall.Arguments,
-				)
-			}
-		}
 	}
 
 	if err := scanner.Err(); err != nil {

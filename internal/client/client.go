@@ -30,4 +30,5 @@ type ToolCall struct {
 
 type LLMClient interface {
 	Send(ctx context.Context, messages []Message) (*Response, error)
+	Stream(ctx context.Context, messages []Message, onText func(string)) error
 }
