@@ -30,6 +30,8 @@ func main() {
 
 	registry.Register(tools.NewReadFileTool("."))
 	registry.Register(tools.NewListFilesTool("."))
+	registry.Register(tools.NewWriteFileTool("."))
+	registry.Register(tools.NewDeleteFileTool("."))
 
 	codingAgent := agent.NewAgent(clnt, registry)
 

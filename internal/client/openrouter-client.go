@@ -240,7 +240,7 @@ func convertToChatRequest(messages []Message) components.ChatRequest {
 		Messages: msgs,
 		Model:    &model,
 		Stream:   &stream,
-		Tools:    []components.ChatFunctionTool{*readFileDefinition(), *listFilesDefinition()},
+		Tools:    []components.ChatFunctionTool{*readFileDefinition(), *listFilesDefinition(), *writeFileDefinition(), *deleteFileDefinition()},
 	}
 }
 
@@ -261,6 +261,62 @@ func listFilesDefinition() *components.ChatFunctionTool {
 							"description": "Path to the directory to list, relative to the workspace root. Omit for the root.",
 						},
 					},
+					"additionalProperties": false,
+				},
+			},
+		},
+		Type: components.ChatFunctionToolUnionTypeChatFunctionToolFunction,
+	}
+}
+
+func writeFileDefinition() *components.ChatFunctionTool {
+	name := "write_file"
+	description := "Create a file or fully overwrite an existing file in the workspace with the given content. Parent directories are created as needed."
+	return &components.ChatFunctionTool{
+		ChatFunctionToolFunction: &components.ChatFunctionToolFunction{
+			Type: components.ChatFunctionToolTypeFunction,
+			Function: components.ChatFunctionToolFunctionFunction{
+				Name:        name,
+				Description: &description,
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Path to the file to write, relative to the workspace root",
+						},
+						"content": map[string]any{
+							"type":        "string",
+							"description": "Full new content of the file",
+						},
+					},
+					"required":             []string{"path", "content"},
+					"additionalProperties": false,
+				},
+			},
+		},
+		Type: components.ChatFunctionToolUnionTypeChatFunctionToolFunction,
+	}
+}
+
+func deleteFileDefinition() *components.ChatFunctionTool {
+	name := "delete_file"
+	description := "Delete a file within the workspace"
+	return &components.ChatFunctionTool{
+		ChatFunctionToolFunction: &components.ChatFunctionToolFunction{
+			Type: components.ChatFunctionToolTypeFunction,
+			Function: components.ChatFunctionToolFunctionFunction{
+				Name:        name,
+				Description: &description,
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Path to the file to delete, relative to the workspace root",
+						},
+					},
+					"required":             []string{"path"},
 					"additionalProperties": false,
 				},
 			},

@@ -52,6 +52,7 @@ func (a *Agent) Run(ctx context.Context, history []client.Message, onText func(s
 				fmt.Printf("[Tool error: %v]\n", err)
 				output = fmt.Sprintf("Tool call failed: %v", err)
 			}
+
 			history = append(history, client.Message{Content: output, Role: client.RoleTool, ToolCallID: call.ID})
 
 		}
