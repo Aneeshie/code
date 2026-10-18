@@ -28,19 +28,10 @@ func (r *Registry) Get(name string) (Tool, bool) {
 }
 
 func (r *Registry) Execute(ctx context.Context, name string, input string) (string, error) {
-	//get the tool
 	tool, ok := r.Get(name)
-
 	if !ok {
-		return "", fmt.Errorf("could not fetch the toolname")
+		return "", fmt.Errorf("tool %q not found", name)
 	}
 
-	// exists so execute the tool
-	res, err := tool.Execute(ctx, name)
-	if err != nil {
-		return "", err
-	}
-
-	return res, nil
-
+	return tool.Execute(ctx, input)
 }

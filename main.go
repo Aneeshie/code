@@ -8,7 +8,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Aneeshie/zerrcode/internal/agent"
 	"github.com/Aneeshie/zerrcode/internal/client"
+	"github.com/Aneeshie/zerrcode/internal/tools"
 	"github.com/joho/godotenv"
 )
 
@@ -23,6 +25,11 @@ func main() {
 	}
 
 	var clnt client.LLMClient = client.NewOpenRouterClient(apiKey)
+
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewReadFileTool("."))
+
+	codingAgent := agent.NewAgent(clnt, registry)
 
 	ctx := context.Background()
 	scanner := bufio.NewScanner(os.Stdin)
@@ -59,24 +66,20 @@ func main() {
 			Content: input,
 		})
 
-		var assistantText strings.Builder
-
-		err := clnt.Stream(ctx, history, func(chunk string) {
-			fmt.Print(chunk)
-			assistantText.WriteString(chunk)
-		})
-
+		updatedHistory, err := codingAgent.Run(
+			ctx,
+			history,
+			func(chunk string) {
+				fmt.Print(chunk)
+			},
+		)
 		if err != nil {
 			fmt.Printf("\nRequest failed: %v\n", err)
 			continue
 		}
 
+		history = updatedHistory
 		fmt.Println()
-
-		history = append(history, client.Message{
-			Role:    client.RoleAssistant,
-			Content: assistantText.String(),
-		})
 	}
 
 	if err := scanner.Err(); err != nil {

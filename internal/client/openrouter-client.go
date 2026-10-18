@@ -56,6 +56,8 @@ func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, onTex
 
 	var responseID string
 
+	toolCalls := make(map[int64]*ToolCall)
+
 	for res.EventStream.Next() {
 		event := res.EventStream.Value()
 		if event == nil || len(event.Data.Choices) == 0 {
@@ -67,6 +69,29 @@ func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, onTex
 		}
 
 		delta := event.Data.Choices[0].Delta
+
+		for _, tc := range delta.ToolCalls {
+			call, ok := toolCalls[tc.Index]
+
+			if !ok {
+				call = &ToolCall{}
+				toolCalls[tc.Index] = call
+			}
+
+			if tc.ID != nil {
+				call.ID = *tc.ID
+			}
+
+			if tc.Function != nil {
+				if tc.Function.Name != nil {
+					call.Name = *tc.Function.Name
+				}
+				if tc.Function.Arguments != nil {
+					call.Arguments += *tc.Function.Arguments
+				}
+			}
+		}
+
 		content, ok := delta.Content.Get()
 
 		if ok && content != nil {
@@ -82,11 +107,25 @@ func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, onTex
 	return &StreamEvent{
 		ID: responseID,
 		Message: Message{
-			Role:    RoleAssistant,
-			Content: text.String(),
+			Role:      RoleAssistant,
+			Content:   text.String(),
+			ToolCalls: collectToolCalls(toolCalls),
 		},
 	}, nil
 
+}
+
+func collectToolCalls(calls map[int64]*ToolCall) []ToolCall {
+
+	result := make([]ToolCall, 0, len(calls))
+
+	for i := int64(0); i < int64(len(calls)); i++ {
+		if call, ok := calls[i]; ok {
+			result = append(result, *call)
+		}
+	}
+
+	return result
 }
 
 func convertResponse(message components.ChatAssistantMessage) Response {
@@ -141,7 +180,8 @@ func convertToChatRequest(messages []Message) components.ChatRequest {
 			for _, toolCall := range message.ToolCalls {
 				sdkToolCalls = append(sdkToolCalls,
 					components.ChatToolCall{
-						ID: toolCall.ID,
+						ID:   toolCall.ID,
+						Type: components.ChatToolCallTypeFunction,
 						Function: components.ChatToolCallFunction{
 							Name:      toolCall.Name,
 							Arguments: toolCall.Arguments,
@@ -170,6 +210,17 @@ func convertToChatRequest(messages []Message) components.ChatRequest {
 				},
 			)
 
+		case RoleTool:
+			content := message.Content
+
+			msg = components.CreateChatMessagesTool(
+				components.ChatToolMessage{
+					Content:    components.CreateChatToolMessageContentStr(content),
+					Role:       components.ChatToolMessageRoleTool,
+					ToolCallID: message.ToolCallID,
+				},
+			)
+
 		default:
 			continue
 		}
@@ -178,9 +229,43 @@ func convertToChatRequest(messages []Message) components.ChatRequest {
 
 	}
 
+	// 	data, err := json.Marshal(readFileDefinition())
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	//
+	// 	fmt.Println(string(data))
+
 	return components.ChatRequest{
 		Messages: msgs,
 		Model:    &model,
 		Stream:   &stream,
+		Tools:    []components.ChatFunctionTool{*readFileDefinition()},
+	}
+}
+
+func readFileDefinition() *components.ChatFunctionTool {
+	name := "read_file"
+	description := "Read the contents of a file within the workspace"
+	return &components.ChatFunctionTool{
+		ChatFunctionToolFunction: &components.ChatFunctionToolFunction{
+			Type: components.ChatFunctionToolTypeFunction,
+			Function: components.ChatFunctionToolFunctionFunction{
+				Name:        name,
+				Description: &description,
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Path to the file to read",
+						},
+					},
+					"required":             []string{"path"},
+					"additionalProperties": false,
+				},
+			},
+		},
+		Type: components.ChatFunctionToolUnionTypeChatFunctionToolFunction,
 	}
 }
