@@ -27,7 +27,9 @@ func main() {
 	var clnt client.LLMClient = client.NewOpenRouterClient(apiKey)
 
 	registry := tools.NewRegistry()
+
 	registry.Register(tools.NewReadFileTool("."))
+	registry.Register(tools.NewListFilesTool("."))
 
 	codingAgent := agent.NewAgent(clnt, registry)
 

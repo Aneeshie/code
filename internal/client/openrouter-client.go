@@ -240,7 +240,32 @@ func convertToChatRequest(messages []Message) components.ChatRequest {
 		Messages: msgs,
 		Model:    &model,
 		Stream:   &stream,
-		Tools:    []components.ChatFunctionTool{*readFileDefinition()},
+		Tools:    []components.ChatFunctionTool{*readFileDefinition(), *listFilesDefinition()},
+	}
+}
+
+func listFilesDefinition() *components.ChatFunctionTool {
+	name := "list_files"
+	description := "List the files and directories within a directory in the workspace. Directories are suffixed with '/'. Defaults to the workspace root."
+	return &components.ChatFunctionTool{
+		ChatFunctionToolFunction: &components.ChatFunctionToolFunction{
+			Type: components.ChatFunctionToolTypeFunction,
+			Function: components.ChatFunctionToolFunctionFunction{
+				Name:        name,
+				Description: &description,
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Path to the directory to list, relative to the workspace root. Omit for the root.",
+						},
+					},
+					"additionalProperties": false,
+				},
+			},
+		},
+		Type: components.ChatFunctionToolUnionTypeChatFunctionToolFunction,
 	}
 }
 
