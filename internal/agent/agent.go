@@ -21,8 +21,17 @@ func NewAgent(client client.LLMClient, registry *tools.Registry) *Agent {
 }
 
 func (a *Agent) Run(ctx context.Context, history []client.Message, onText func(string)) ([]client.Message, error) {
+	var definitions []client.ToolDefinition
+	for _, tool := range a.registry.All() {
+		definitions = append(definitions, client.ToolDefinition{
+			Name:        tool.Name(),
+			Description: tool.Description(),
+			InputSchema: tool.InputSchema(),
+		})
+	}
+
 	for {
-		result, err := a.client.Stream(ctx, history, onText)
+		result, err := a.client.Stream(ctx, history, definitions, onText)
 		if err != nil {
 			return nil, err
 		}

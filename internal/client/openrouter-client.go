@@ -23,7 +23,7 @@ func NewOpenRouterClient(apiKey string) *OpenRouterClient {
 }
 
 func (o *OpenRouterClient) Send(ctx context.Context, messages []Message) (*Response, error) {
-	chatReq := convertToChatRequest(messages)
+	chatReq := convertToChatRequest(messages, nil)
 
 	res, err := o.Client.Chat.Send(ctx, chatReq, nil)
 	if err != nil {
@@ -36,8 +36,8 @@ func (o *OpenRouterClient) Send(ctx context.Context, messages []Message) (*Respo
 
 }
 
-func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, onText func(string)) (*StreamEvent, error) {
-	chatReq := convertToChatRequest(messages)
+func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, definitions []ToolDefinition, onText func(string)) (*StreamEvent, error) {
+	chatReq := convertToChatRequest(messages, definitions)
 	res, err := o.Client.Chat.Send(ctx, chatReq, nil)
 	if err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ func convertResponse(message components.ChatAssistantMessage) Response {
 	}
 }
 
-func convertToChatRequest(messages []Message) components.ChatRequest {
+func convertToChatRequest(messages []Message, definitions []ToolDefinition) components.ChatRequest {
 	var msgs []components.ChatMessages
 	model := "nvidia/nemotron-3.5-super-vl:free"
 	stream := true
@@ -229,124 +229,31 @@ func convertToChatRequest(messages []Message) components.ChatRequest {
 
 	}
 
-	// 	data, err := json.Marshal(readFileDefinition())
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	//
-	// 	fmt.Println(string(data))
-
 	return components.ChatRequest{
 		Messages: msgs,
 		Model:    &model,
 		Stream:   &stream,
-		Tools:    []components.ChatFunctionTool{*readFileDefinition(), *listFilesDefinition(), *writeFileDefinition(), *deleteFileDefinition()},
+		Tools:    convertToolDefinitions(definitions),
 	}
 }
 
-func listFilesDefinition() *components.ChatFunctionTool {
-	name := "list_files"
-	description := "List the files and directories within a directory in the workspace. Directories are suffixed with '/'. Defaults to the workspace root."
-	return &components.ChatFunctionTool{
-		ChatFunctionToolFunction: &components.ChatFunctionToolFunction{
-			Type: components.ChatFunctionToolTypeFunction,
-			Function: components.ChatFunctionToolFunctionFunction{
-				Name:        name,
-				Description: &description,
-				Parameters: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"path": map[string]any{
-							"type":        "string",
-							"description": "Path to the directory to list, relative to the workspace root. Omit for the root.",
-						},
-					},
-					"additionalProperties": false,
-				},
-			},
-		},
-		Type: components.ChatFunctionToolUnionTypeChatFunctionToolFunction,
-	}
-}
+func convertToolDefinitions(definitions []ToolDefinition) []components.ChatFunctionTool {
+	tools := make([]components.ChatFunctionTool, 0, len(definitions))
 
-func writeFileDefinition() *components.ChatFunctionTool {
-	name := "write_file"
-	description := "Create a file or fully overwrite an existing file in the workspace with the given content. Parent directories are created as needed."
-	return &components.ChatFunctionTool{
-		ChatFunctionToolFunction: &components.ChatFunctionToolFunction{
-			Type: components.ChatFunctionToolTypeFunction,
-			Function: components.ChatFunctionToolFunctionFunction{
-				Name:        name,
-				Description: &description,
-				Parameters: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"path": map[string]any{
-							"type":        "string",
-							"description": "Path to the file to write, relative to the workspace root",
-						},
-						"content": map[string]any{
-							"type":        "string",
-							"description": "Full new content of the file",
-						},
-					},
-					"required":             []string{"path", "content"},
-					"additionalProperties": false,
+	for _, def := range definitions {
+		description := def.Description
+		tools = append(tools, components.ChatFunctionTool{
+			ChatFunctionToolFunction: &components.ChatFunctionToolFunction{
+				Type: components.ChatFunctionToolTypeFunction,
+				Function: components.ChatFunctionToolFunctionFunction{
+					Name:        def.Name,
+					Description: &description,
+					Parameters:  def.InputSchema,
 				},
 			},
-		},
-		Type: components.ChatFunctionToolUnionTypeChatFunctionToolFunction,
+			Type: components.ChatFunctionToolUnionTypeChatFunctionToolFunction,
+		})
 	}
-}
 
-func deleteFileDefinition() *components.ChatFunctionTool {
-	name := "delete_file"
-	description := "Delete a file within the workspace"
-	return &components.ChatFunctionTool{
-		ChatFunctionToolFunction: &components.ChatFunctionToolFunction{
-			Type: components.ChatFunctionToolTypeFunction,
-			Function: components.ChatFunctionToolFunctionFunction{
-				Name:        name,
-				Description: &description,
-				Parameters: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"path": map[string]any{
-							"type":        "string",
-							"description": "Path to the file to delete, relative to the workspace root",
-						},
-					},
-					"required":             []string{"path"},
-					"additionalProperties": false,
-				},
-			},
-		},
-		Type: components.ChatFunctionToolUnionTypeChatFunctionToolFunction,
-	}
-}
-
-func readFileDefinition() *components.ChatFunctionTool {
-	name := "read_file"
-	description := "Read the contents of a file within the workspace"
-	return &components.ChatFunctionTool{
-		ChatFunctionToolFunction: &components.ChatFunctionToolFunction{
-			Type: components.ChatFunctionToolTypeFunction,
-			Function: components.ChatFunctionToolFunctionFunction{
-				Name:        name,
-				Description: &description,
-				Parameters: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"path": map[string]any{
-							"type":        "string",
-							"description": "Path to the file to read",
-						},
-					},
-					"required":             []string{"path"},
-					"additionalProperties": false,
-				},
-			},
-		},
-		Type: components.ChatFunctionToolUnionTypeChatFunctionToolFunction,
-	}
+	return tools
 }

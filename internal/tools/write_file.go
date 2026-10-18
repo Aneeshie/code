@@ -31,6 +31,24 @@ func (t *WriteFileTool) Description() string {
 	return "Create a file, or overwrite an existing file, with the given content"
 }
 
+func (t *WriteFileTool) InputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Path to the file to write, relative to the workspace root",
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "Content to write to the file",
+			},
+		},
+		"required":             []string{"path", "content"},
+		"additionalProperties": false,
+	}
+}
+
 func (t *WriteFileTool) Execute(ctx context.Context, input string) (string, error) {
 	var args WriteFileInput
 

@@ -29,6 +29,20 @@ func (t *DeleteFileTool) Description() string {
 	return "Delete a file within the workspace"
 }
 
+func (t *DeleteFileTool) InputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Path to the file to delete, relative to the workspace root",
+			},
+		},
+		"required":             []string{"path"},
+		"additionalProperties": false,
+	}
+}
+
 func (t *DeleteFileTool) Execute(ctx context.Context, input string) (string, error) {
 	var args DeleteFileInput
 

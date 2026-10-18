@@ -32,6 +32,20 @@ func (t *ReadFileTool) Description() string {
 	return "Read the contents of the file within the workspace"
 }
 
+func (t *ReadFileTool) InputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Path to the file to read, relative to the workspace root",
+			},
+		},
+		"required":             []string{"path"},
+		"additionalProperties": false,
+	}
+}
+
 func (t *ReadFileTool) Execute(ctx context.Context, input string) (string, error) {
 
 	var args ReadFileInput

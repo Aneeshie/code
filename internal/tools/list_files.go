@@ -31,6 +31,19 @@ func (t *ListFilesTool) Description() string {
 	return "List all files in the given directory"
 }
 
+func (t *ListFilesTool) InputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Path to the directory to list files in, relative to the workspace root",
+			},
+		},
+		"additionalProperties": false,
+	}
+}
+
 func (t *ListFilesTool) Execute(ctx context.Context, input string) (string, error) {
 	var args ListFilesInput
 

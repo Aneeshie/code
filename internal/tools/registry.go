@@ -35,3 +35,11 @@ func (r *Registry) Execute(ctx context.Context, name string, input string) (stri
 
 	return tool.Execute(ctx, input)
 }
+
+func (r *Registry) All() []Tool {
+	tools := make([]Tool, 0, len(r.tools))
+	for _, tool := range r.tools {
+		tools = append(tools, tool)
+	}
+	return tools
+}

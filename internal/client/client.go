@@ -35,7 +35,13 @@ type StreamEvent struct {
 	Err     error
 }
 
+type ToolDefinition struct {
+	Name        string
+	Description string
+	InputSchema map[string]any
+}
+
 type LLMClient interface {
 	Send(ctx context.Context, messages []Message) (*Response, error)
-	Stream(ctx context.Context, messages []Message, onText func(string)) (*StreamEvent, error)
+	Stream(ctx context.Context, messages []Message, definitions []ToolDefinition, onText func(string)) (*StreamEvent, error)
 }
