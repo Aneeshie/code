@@ -12,9 +12,10 @@ const (
 )
 
 type Message struct {
-	Content   string
-	Role      Role
-	ToolCalls []ToolCall
+	Content    string
+	Role       Role
+	ToolCalls  []ToolCall
+	ToolCallID string
 }
 
 type Response struct {
@@ -28,6 +29,13 @@ type ToolCall struct {
 	Arguments string
 }
 
+type StreamEvent struct {
+	ID      string
+	Message Message
+	Err     error
+}
+
 type LLMClient interface {
 	Send(ctx context.Context, messages []Message) (*Response, error)
+	Stream(ctx context.Context, messages []Message, onText func(string)) (*StreamEvent, error)
 }
