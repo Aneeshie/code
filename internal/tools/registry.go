@@ -43,3 +43,13 @@ func (r *Registry) All() []Tool {
 	}
 	return tools
 }
+
+// IsMutating reports whether the named tool changes the workspace.
+func (r *Registry) IsMutating(name string) bool {
+	tool, ok := r.Get(name)
+	if !ok {
+		return false
+	}
+	m, ok := tool.(Mutator)
+	return ok && m.Mutates()
+}

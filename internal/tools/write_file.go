@@ -23,6 +23,9 @@ func NewWriteFileTool(root string) *WriteFileTool {
 	return &WriteFileTool{Root: root}
 }
 
+// Mutates marks this tool as changing the workspace.
+func (t *WriteFileTool) Mutates() bool { return true }
+
 func (t *WriteFileTool) Name() string {
 	return "write_file"
 }

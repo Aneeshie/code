@@ -1,6 +1,6 @@
 # zerrcode
 
-`zerrcode` is an interactive, command-line coding assistant written in Go. It uses an LLM (via [OpenRouter](https://openrouter.ai)) to help you read, write, list, and delete files in your workspace through natural conversation.
+`zerrcode` is an interactive, command-line coding assistant written in Go. It uses an LLM (via [OpenRouter](https://openrouter.ai)) to help you read, search, edit, write, and delete files in your workspace through natural conversation.
 
 ## Features
 
@@ -8,7 +8,10 @@
 - **Tool use** – the agent can call file-system tools to inspect and modify files on your behalf
 - **Streaming responses** – LLM output is streamed to the terminal in real time
 - **Conversation history** – the agent maintains context across your session
-- **Path sandboxing** – all file operations are restricted to the workspace directory to prevent path traversal
+- **Path sandboxing** – all file operations are restricted to the workspace directory, including through symlinks
+- **Multi-file edits** – `edit_file` applies a unified diff that can change several files, all-or-nothing
+- **Verified completion** – after changing files the agent must inspect `git diff` before reporting it is done
+- **Honest reporting** – the agent separates commands it actually ran from ones it could not run
 
 ## Built-in Tools
 
@@ -16,13 +19,19 @@
 |------|-------------|
 | `read_file` | Read the contents of a file within the workspace |
 | `list_files` | List files and directories in a workspace directory |
+| `search_code` | Literal-text search across files (uses `grep`) |
+| `git_diff` | Read-only: changed files and the diff against `HEAD` |
 | `write_file` | Create or overwrite a file with given content |
+| `edit_file` | Apply a multi-file unified diff, all-or-nothing |
 | `delete_file` | Delete a file within the workspace |
+
+See [`docs/tools.md`](docs/tools.md) for how each tool works.
 
 ## Requirements
 
 - Go 1.27+
 - An [OpenRouter](https://openrouter.ai) API key
+- `git` and `grep` on your `PATH` (used by `git_diff` and `search_code`)
 
 ## Installation
 
@@ -71,21 +80,35 @@ zerrcode/
 ├── .gitignore
 ├── LICENSE
 ├── README.md
+├── docs/
+│   ├── architecture.md     # components, loop, security model
+│   ├── decisions.md        # design decisions, trade-offs, change log
+│   └── tools.md            # how each tool works
 ├── internal/
 │   ├── agent/
-│   │   └── agent.go        # Agent loop: LLM calls + tool execution
+│   │   ├── agent.go        # Agent loop: LLM calls, tool execution, verification
+│   │   └── prompt.go       # System prompt
 │   ├── client/
 │   │   ├── client.go       # LLMClient interface, Message, ToolCall types
 │   │   └── openrouter-client.go  # OpenRouter SDK implementation
 │   └── tools/
-│       ├── tool.go         # Tool interface
+│       ├── tool.go         # Tool and Mutator interfaces
 │       ├── registry.go     # Tool registry (register/get/execute)
-│       ├── path.go         # Workspace path traversal protection
+│       ├── path.go         # Workspace path confinement (symlink-aware)
 │       ├── read_file.go    # read_file tool
 │       ├── list_files.go   # list_files tool
+│       ├── search_code.go  # search_code tool
+│       ├── git_diff.go     # git_diff tool
 │       ├── write_file.go   # write_file tool
+│       ├── edit_file.go    # edit_file tool (+ validatePath)
 │       └── delete_file.go  # delete_file tool
 ```
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/tools.md`](docs/tools.md)
+- [`docs/decisions.md`](docs/decisions.md)
 
 ## Configuration
 
