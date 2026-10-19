@@ -15,6 +15,22 @@ import (
 
 const maxPatchFiles = 50
 
+// patchRetryGuidance tells the model what to do when a hunk does not apply.
+// The failure usually means the file differs from what the model remembers,
+// and the tempting shortcut is to overwrite the whole file, which silently
+// discards anything the patch did not know about.
+func patchRetryGuidance(oldName, newName string, kind editKind) string {
+	target := newName
+	if kind != editCreate && oldName != "" {
+		target = oldName
+	}
+	return fmt.Sprintf(
+		"No files were modified. Do not fall back to write_file or rewrite the whole file. "+
+			"Re-read %q with read_file, then generate a new, minimal patch with fresh context lines copied from its current content.",
+		target,
+	)
+}
+
 type EditFileInput struct {
 	Patch string `json:"patch"`
 }
@@ -27,12 +43,17 @@ func NewEditFileTool(root string) *EditFileTool {
 	return &EditFileTool{Root: root}
 }
 
+// Mutates marks this tool as changing the workspace.
+func (t *EditFileTool) Mutates() bool { return true }
+
 func (t *EditFileTool) Name() string {
 	return "edit_file"
 }
 
 func (t *EditFileTool) Description() string {
-	return "Apply a unified diff (git format) to the workspace. A single patch may modify, create, delete or rename several files; the files are identified by the patch itself."
+	return "Apply a unified diff (git format) to the workspace. A single patch may modify, create, delete or rename several files; the files are identified by the patch itself. " +
+		"The patch is all-or-nothing: if any hunk fails to apply, no file is changed. " +
+		"If it fails, re-read the file with read_file and send a new, targeted patch; do not fall back to rewriting the whole file with write_file."
 }
 
 func (t *EditFileTool) InputSchema() map[string]any {
@@ -255,7 +276,7 @@ func (t *EditFileTool) planEdit(file *gitdiff.File, gitFormat bool, seen map[str
 
 	var output bytes.Buffer
 	if err := gitdiff.Apply(&output, bytes.NewReader(original), file); err != nil {
-		return plannedEdit{}, fmt.Errorf("apply patch to %s: %w", edit.name, err)
+		return plannedEdit{}, fmt.Errorf("apply patch to %s: %w. %s", edit.name, err, patchRetryGuidance(oldName, newName, edit.kind))
 	}
 	edit.content = output.Bytes()
 

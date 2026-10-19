@@ -213,3 +213,26 @@ func TestEditFileRejectsBinaryPatch(t *testing.T) {
 	}
 	assertFileContent(t, filepath.Join(root, "img.png"), "old")
 }
+
+func TestEditFileFailureTellsModelToReReadAndNotRewrite(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "a.txt"), threeLines)
+
+	_, err := runEdit(t, root, modifyPatch("a.txt", "NOT-THERE", "x"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	for _, want := range []string{
+		"No files were modified",
+		"Do not fall back to write_file",
+		`Re-read "a.txt" with read_file`,
+		"new, minimal patch",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%v", want, err)
+		}
+	}
+
+	assertFileContent(t, filepath.Join(root, "a.txt"), threeLines)
+}
