@@ -69,3 +69,30 @@ func TestReadFileToolCancelledContext(t *testing.T) {
 		t.Fatal("expected error for cancelled context")
 	}
 }
+
+func TestToolsReportMultipleJSONValues(t *testing.T) {
+	root := t.TempDir()
+	double := `{"path":"a"}{"path":"b"}`
+
+	for name, tool := range map[string]Tool{
+		"read_file":   NewReadFileTool(root),
+		"list_files":  NewListFilesTool(root),
+		"delete_file": NewDeleteFileTool(root),
+		"write_file":  NewWriteFileTool(root),
+		"search_code": NewSearchCodeTool(root),
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := double
+			if name == "write_file" {
+				in = `{"path":"a","content":"x"}{"path":"b","content":"y"}`
+			}
+			if name == "search_code" {
+				in = `{"query":"a"}{"query":"b"}`
+			}
+			_, err := tool.Execute(context.Background(), in)
+			if err == nil || !strings.Contains(err.Error(), "multiple json values") {
+				t.Fatalf("error = %v, want multiple json values", err)
+			}
+		})
+	}
+}

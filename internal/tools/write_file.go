@@ -59,7 +59,7 @@ func (t *WriteFileTool) Execute(ctx context.Context, input string) (string, erro
 		return "", fmt.Errorf("invalid write_file arguments: %v", err)
 	}
 
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+	if err := decoder.Decode(&json.RawMessage{}); err != io.EOF {
 		if err == nil {
 			return "", fmt.Errorf("invalid write_file arguments: multiple json values")
 		}
