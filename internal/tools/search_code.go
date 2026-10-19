@@ -66,7 +66,7 @@ func (s *SearchCodeTool) Execute(ctx context.Context, input string) (string, err
 	if err := decoder.Decode(&inputs); err != nil {
 		return "", fmt.Errorf("invalid search_code arguments: %v", err)
 	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+	if err := decoder.Decode(&json.RawMessage{}); err != io.EOF {
 		return "", fmt.Errorf("invalid search_code arguments: multiple json values")
 	}
 

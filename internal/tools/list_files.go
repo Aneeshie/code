@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -55,7 +54,7 @@ func (t *ListFilesTool) Execute(ctx context.Context, input string) (string, erro
 			return "", fmt.Errorf("invalid list_files arguments: %v", err)
 		}
 
-		if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err := decoder.Decode(&json.RawMessage{}); err != io.EOF {
 			if err == nil {
 				return "", fmt.Errorf("invalid list_files arguments: multiple json values")
 			}
@@ -63,19 +62,9 @@ func (t *ListFilesTool) Execute(ctx context.Context, input string) (string, erro
 		}
 	}
 
-	root, err := filepath.Abs(t.Root)
+	path, err := resolveInWorkspace(t.Root, args.Path)
 	if err != nil {
-		return "", fmt.Errorf("resolve workspace: %v", err)
-	}
-
-	path, err := filepath.Abs(filepath.Join(root, args.Path))
-	if err != nil {
-		return "", fmt.Errorf("resolve directory path: %v", err)
-	}
-
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path is outside the workspace")
+		return "", err
 	}
 
 	info, err := os.Stat(path)
