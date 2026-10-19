@@ -277,3 +277,168 @@ func (c *cancellingTool) Execute(context.Context, string) (string, error) {
 	c.cancel()
 	return "ok", nil
 }
+
+// mutatingTool is a fakeTool that reports itself as changing the workspace.
+type mutatingTool struct{ fakeTool }
+
+func (m *mutatingTool) Mutates() bool { return true }
+
+func final(text string) client.Message {
+	return client.Message{Role: client.RoleAssistant, Content: text}
+}
+
+func countReminders(history []client.Message) int {
+	n := 0
+	for _, m := range history {
+		if m.Role == client.RoleUser && m.Content == verificationReminder {
+			n++
+		}
+	}
+	return n
+}
+
+func TestAgentRequiresVerificationAfterChanges(t *testing.T) {
+	edit := &mutatingTool{fakeTool{name: "edit_file", output: "modified a.go"}}
+	diff := &fakeTool{name: VerificationTool, output: "M a.go"}
+	c := &scriptedClient{steps: []client.Message{
+		assistantCall("1", "edit_file", `{}`),
+		final("all done"), // tries to finish without verifying
+		assistantCall("2", VerificationTool, `{}`),
+		final("verified, done"),
+	}}
+
+	history, err := newTestAgent(c, edit, diff).Run(context.Background(), userHistory(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(diff.calls) != 1 {
+		t.Fatalf("git_diff called %d times, want 1", len(diff.calls))
+	}
+	if got := countReminders(history); got != 1 {
+		t.Fatalf("reminders = %d, want 1", got)
+	}
+	if last := history[len(history)-1]; last.Content != "verified, done" {
+		t.Fatalf("final message = %q", last.Content)
+	}
+	if c.calls != 4 {
+		t.Fatalf("client called %d times, want 4", c.calls)
+	}
+}
+
+func TestAgentDoesNotNudgeWhenAlreadyVerified(t *testing.T) {
+	edit := &mutatingTool{fakeTool{name: "edit_file", output: "ok"}}
+	diff := &fakeTool{name: VerificationTool, output: "M a.go"}
+	c := &scriptedClient{steps: []client.Message{
+		assistantCall("1", "edit_file", `{}`),
+		assistantCall("2", VerificationTool, `{}`),
+		final("done"),
+	}}
+
+	history, err := newTestAgent(c, edit, diff).Run(context.Background(), userHistory(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := countReminders(history); got != 0 {
+		t.Fatalf("reminders = %d, want 0", got)
+	}
+}
+
+func TestAgentRequiresReverificationAfterLaterChange(t *testing.T) {
+	edit := &mutatingTool{fakeTool{name: "edit_file", output: "ok"}}
+	diff := &fakeTool{name: VerificationTool, output: "M a.go"}
+	c := &scriptedClient{steps: []client.Message{
+		assistantCall("1", "edit_file", `{}`),
+		assistantCall("2", VerificationTool, `{}`),
+		assistantCall("3", "edit_file", `{}`), // changes again after verifying
+		final("done"),                         // verification is now stale
+		assistantCall("4", VerificationTool, `{}`),
+		final("really done"),
+	}}
+
+	history, err := newTestAgent(c, edit, diff).Run(context.Background(), userHistory(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := countReminders(history); got != 1 {
+		t.Fatalf("reminders = %d, want 1", got)
+	}
+	if len(diff.calls) != 2 {
+		t.Fatalf("git_diff called %d times, want 2", len(diff.calls))
+	}
+}
+
+func TestAgentDoesNotNudgeWithoutChanges(t *testing.T) {
+	reader := &fakeTool{name: "read_file", output: "contents"}
+	c := &scriptedClient{steps: []client.Message{
+		assistantCall("1", "read_file", `{}`),
+		final("here is the answer"),
+	}}
+
+	history, err := newTestAgent(c, reader).Run(context.Background(), userHistory(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := countReminders(history); got != 0 {
+		t.Fatalf("reminders = %d, want 0", got)
+	}
+}
+
+func TestAgentDoesNotNudgeAfterFailedChange(t *testing.T) {
+	edit := &mutatingTool{fakeTool{name: "edit_file", err: errors.New("hunk failed")}}
+	c := &scriptedClient{steps: []client.Message{
+		assistantCall("1", "edit_file", `{}`),
+		final("could not apply the patch"),
+	}}
+
+	history, err := newTestAgent(c, edit).Run(context.Background(), userHistory(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := countReminders(history); got != 0 {
+		t.Fatalf("a failed change changed nothing, reminders = %d, want 0", got)
+	}
+}
+
+func TestAgentGivesUpAfterMaxVerificationNudges(t *testing.T) {
+	edit := &mutatingTool{fakeTool{name: "edit_file", output: "ok"}}
+	c := &scriptedClient{steps: []client.Message{
+		assistantCall("1", "edit_file", `{}`),
+		final("done"),
+		final("done again"),
+		final("done yet again"),
+	}}
+
+	a := newTestAgent(c, edit)
+	a.MaxVerificationNudges = 2
+
+	history, err := a.Run(context.Background(), userHistory(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := countReminders(history); got != 2 {
+		t.Fatalf("reminders = %d, want exactly 2", got)
+	}
+	if last := history[len(history)-1]; last.Content != "done yet again" {
+		t.Fatalf("final message = %q", last.Content)
+	}
+}
+
+func TestAgentVerificationCanBeDisabled(t *testing.T) {
+	edit := &mutatingTool{fakeTool{name: "edit_file", output: "ok"}}
+	c := &scriptedClient{steps: []client.Message{
+		assistantCall("1", "edit_file", `{}`),
+		final("done"),
+	}}
+
+	a := newTestAgent(c, edit)
+	a.MaxVerificationNudges = 0
+
+	history, err := a.Run(context.Background(), userHistory(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := countReminders(history); got != 0 {
+		t.Fatalf("reminders = %d, want 0", got)
+	}
+}

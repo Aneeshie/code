@@ -21,6 +21,9 @@ func NewDeleteFileTool(root string) *DeleteFileTool {
 	return &DeleteFileTool{Root: root}
 }
 
+// Mutates marks this tool as changing the workspace.
+func (t *DeleteFileTool) Mutates() bool { return true }
+
 func (t *DeleteFileTool) Name() string {
 	return "delete_file"
 }
