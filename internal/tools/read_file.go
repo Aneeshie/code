@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -57,7 +56,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, input string) (string, error
 		return "", fmt.Errorf("invalid read_file arguments: %v", err)
 	}
 
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+	if err := decoder.Decode(&json.RawMessage{}); err != io.EOF {
 		if err == nil {
 			return "", fmt.Errorf("invalid read_file arguments: multiple json values")
 		}
@@ -68,21 +67,9 @@ func (t *ReadFileTool) Execute(ctx context.Context, input string) (string, error
 		return "", fmt.Errorf("path is required")
 	}
 
-	root, err := filepath.Abs(t.Root)
+	path, err := resolveInWorkspace(t.Root, args.Path)
 	if err != nil {
-		return "", fmt.Errorf("resolve workspace: %v", err)
-	}
-
-	path := filepath.Join(root, args.Path)
-
-	path, err = filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("resolve file path: %v", err)
-	}
-
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path is outside the workspace")
+		return "", err
 	}
 
 	info, err := os.Stat(path)
