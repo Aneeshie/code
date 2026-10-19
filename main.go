@@ -33,6 +33,8 @@ func main() {
 	registry.Register(tools.NewWriteFileTool("."))
 	registry.Register(tools.NewDeleteFileTool("."))
 	registry.Register(tools.NewSearchCodeTool("."))
+	registry.Register(tools.NewEditFileTool("."))
+	registry.Register(tools.NewGitDiffTool("."))
 
 	codingAgent := agent.NewAgent(clnt, registry)
 
@@ -42,7 +44,7 @@ func main() {
 	history := []client.Message{
 		{
 			Role:    client.RoleSystem,
-			Content: "You are a helpful coding assistant. Keep your answers concise.",
+			Content: agent.SystemPrompt,
 		},
 	}
 
