@@ -19,8 +19,16 @@ For how the system fits together see [`architecture.md`](architecture.md); for h
 11. [Strict, uniform argument parsing](#11-strict-uniform-argument-parsing)
 12. [`search_code` shells out to `grep`](#12-search_code-shells-out-to-grep)
 13. [Test strategy](#13-test-strategy)
-14. [Known limitations](#known-limitations)
-15. [Change log](#change-log)
+14. [A real diff, not a described one](#14-a-real-diff-not-a-described-one)
+15. [Plan/Planner: separate validation from execution](#15-planplanner-separate-validation-from-execution)
+16. [Optimistic concurrency guards](#16-optimistic-concurrency-guards)
+17. [The approval gate is in the registry, not the tools](#17-the-approval-gate-is-in-the-registry-not-the-tools)
+18. [The agent is UI-agnostic (event system)](#18-the-agent-is-ui-agnostic-event-system)
+19. [TUI approval blocks the tool, not the event loop](#19-tui-approval-blocks-the-tool-not-the-event-loop)
+20. [Raw ANSI rather than lipgloss styles](#20-raw-ansi-rather-than-lipgloss-styles)
+21. [Two modes behind one binary](#21-two-modes-behind-one-binary)
+22. [Known limitations](#known-limitations)
+23. [Change log](#change-log)
 
 ---
 
@@ -159,6 +167,102 @@ Per-file rules: binary and copy patches rejected; only the side that exists is v
 - The agent is tested with a **scripted fake client and fake tools**: normal loops, multiple calls per turn, error forwarding, unknown tools, the iteration cap, cancellation, and the verification nudge (including that it does not fire for read-only runs or failed changes, fires again after a later change, and gives up after the limit).
 - Tests that need `grep` or `git` skip themselves when the binary is missing.
 
+## 14. A real diff, not a described one
+
+**Context.** When an LLM decides to mutate code, it often announces in chat: "I'll update line 4 to call foo()". Showing this description or trusting the raw LLM tool arguments as the basis for user confirmation leads to hallucinations and blind approvals.
+
+**Decision.** We compute structured unified diffs (`internal/diff`) derived from actual file content on disk vs. the proposed file content.
+
+**Why.**
+- The human reviewer sees an uncompromising truth: additions in green, deletions in red, and real hunk headers.
+- If the model claimed to change one word but accidentally truncated half the file, the unified diff catches it immediately.
+
+**Trade-offs.** Every mutating operation must snapshot the file and compute a unified diff in memory before asking for permission, incurring minor CPU/memory overhead for large files.
+
+## 15. Plan/Planner: separate validation from execution
+
+**Context.** In early designs, tool execution combined argument parsing, filesystem reads, path checks, and immediate disk writes into a single `Execute(ctx, input)` step. This made pre-execution approval impossible without rewriting every tool.
+
+**Decision.** Introduce the `Planner` interface and `Plan` struct (`internal/tools/plan.go`). Tools implementing `Planner` define `Plan(ctx, input) (*Plan, error)`. `Plan` parses arguments, validates safety, snapshots target files, and returns a commit function alongside the list of proposed changes (`permissions.FileChange`).
+
+**Why.**
+- Clean separation of concerns: tools focus strictly on computing their diff and validating internal logic.
+- The registry acts as the single choke-point for approval: it inspects the `Plan`, asks the user or approval policy, and only invokes `Apply(ctx)` if granted.
+
+**Trade-offs.** Mutating tools must maintain two lifecycle stages (`Plan` and `Apply`).
+
+## 16. Optimistic concurrency guards
+
+**Context.** When an interactive TUI prompts the user: *"Approve changes to main.go? [y/n]"*, the user might spend minutes reviewing, or might switch to their editor, edit `main.go`, and switch back. If the agent writes out the change after the user touched the file, the user's manual edits would be silently overwritten (lost update problem).
+
+**Decision.** `Plan` records a snapshot (`fileState`) of every touched file during planning. Inside `Plan.Apply()`, immediately before committing writes, `guard()` verifies that the disk state exactly matches the snapshot taken during planning.
+
+**Why.**
+- Guarantees safety in human-in-the-loop workflows.
+- If an edit occurred in the interim, the write fails safely with: `"<file> changed after the change was proposed; nothing was written. Re-read it and propose the change again"`.
+
+**Trade-offs.** Snapshotting buffers existing file bytes into memory.
+
+## 17. The approval gate is in the registry, not the tools
+
+**Context.** Individual tools could each invoke an approver callback, or the agent could inspect tool calls before dispatching them.
+
+**Decision.** The approval gate is centralized inside `tools.Registry.Execute`. The registry checks if a tool implements `Planner` (or `Mutator`). If so, it requests approval from its configured `permissions.Manager`. If no approver is set, it fails closed with `ErrNoApprover`.
+
+**Why.**
+- Uniform enforcement: no mutating tool can ever bypass approval by mistake or omission.
+- Tools remain completely agnostic of the user interface, terminal sessions, or approval contracts.
+
+**Trade-offs.** Tools cannot easily customize approval questions beyond providing structured `FileChange` records.
+
+## 18. The agent is UI-agnostic (event system)
+
+**Context.** The agent previously printed tool execution logs directly to stdout with `fmt.Printf`. When introducing a full-screen terminal UI (Bubble Tea alt-screen mode), raw stdout writes corrupt the terminal buffer and destroy the UI.
+
+**Decision.** Remove all `fmt.Printf` calls from `Agent.Run`. Instead, provide an `OnEvent(Event)` callback emitting `EventAssistant`, `EventToolStart`, `EventToolResult`, and `EventVerify`.
+
+**Why.**
+- The core agent loop can run headlessly, in a classic REPL, inside a full-screen TUI, or in a web server/socket service without modification.
+- Complete decoupling of domain logic from presentation.
+
+**Trade-offs.** The calling UI must subscribe to `OnEvent` if it wants real-time status notifications for tools.
+
+## 19. TUI approval blocks the tool, not the event loop
+
+**Context.** `Registry.Execute` is called synchronously on the agent's turn goroutine. In an interactive UI, requesting user input typically requires callbacks or async promises, which would complicate Go's synchronous tool execution model.
+
+**Decision.** `TUIApprover` implements `permissions.Manager`. Its `RequestApproval` method dispatches an `approvalPromptMsg` to the Bubble Tea program and blocks on a Go channel (`chan bool`) until the user responds in the TUI (or context cancels).
+
+**Why.**
+- The agent loop remains straightforward, synchronous Go code with standard error handling.
+- Bubble Tea handles keyboard navigation, diff toggling, and rendering without blocking the application runtime.
+
+**Trade-offs.** Requires goroutine synchronization and careful handling of context cancellation (e.g., if the user hits `Ctrl+C` while an approval prompt is active).
+
+## 20. Raw ANSI rather than lipgloss styles
+
+**Context.** Bubble Tea apps often use Lipgloss for rendering and colors. However, pulling Lipgloss style definitions for basic line-based chat rendering and diff highlighting can add unnecessary overhead and wrapping bugs.
+
+**Decision.** Use raw ANSI 24-bit true-color escape sequences in `internal/tui/theme.go` alongside `charmbracelet/x/ansi` for accurate visual string width calculation.
+
+**Why.**
+- Fast, deterministic rendering of diff lines and chat boxes.
+- Zero style allocation overhead on high-frequency streaming events.
+
+**Trade-offs.** Colors are hardcoded to a dark slate / violet / emerald palette and require true-color terminal support.
+
+## 21. Two modes behind one binary
+
+**Context.** Some users want a quick, pipeable CLI or simple terminal REPL, while others want a full-screen TUI with diff inspection.
+
+**Decision.** Support both via the `-tui` flag in `main.go`. Without `-tui`, the agent runs in classic REPL mode using `permissions.AllowAll{}`. With `-tui`, it launches the interactive Bubble Tea UI with `TUIApprover`.
+
+**Why.**
+- Backwards compatibility with scripts and headless usage.
+- Single unified binary.
+
+---
+
 ## Known limitations
 
 - **Not a hardened sandbox.** Symlink checks are time-of-check/time-of-use; concurrent filesystem changes and permissions need care for untrusted workspaces.
@@ -205,3 +309,22 @@ Grouped by pull request / branch, oldest first.
 5. `feat(agent): system prompt that separates commands run from commands not run` — `agent.SystemPrompt`; `main.go` uses it and registers `edit_file` and `git_diff`.
 6. `feat(agent): require git diff verification before reporting completion` — `Mutator`, `Registry.IsMutating`, `MaxVerificationNudges`.
 7. Documentation: this file, `tools.md`, and updates to `architecture.md` and the README.
+
+### `feat/opentui-scaffold` (Human-in-the-loop & Interactive TUI)
+
+1. `feat(diff): add structured diff computation library` — `internal/diff` unified diff parser with line-by-line syntax classification.
+2. `feat(permissions): define the file-change approval contract` — `internal/permissions` (`Manager`, `FileChange`, `Request`, `AllowAll`, `DenyAll`).
+3. `feat(tools): add Plan/Planner pattern for approvable tool calls` — `internal/tools/plan.go` with snapshot-based optimistic concurrency guards.
+4. `feat(tools): add approval gate to Registry.Execute` — thread-safe approver dispatch with fail-closed security.
+5. `refactor(tools): make write_file a Planner` — pre-computes diff and checks modification guards before writing.
+6. `refactor(tools): make delete_file a Planner` — snapshots target content for diff inspection prior to deletion.
+7. `refactor(tools): make edit_file a Planner` — multi-file diff preview and multi-file atomic optimistic concurrency guard.
+8. `feat(agent): add event system for UI observation` — `Event` stream (`OnEvent`) decoupling agent logic from terminal I/O.
+9. `test(agent): update tests for rejection status` — test coverage for `ErrRejected` handling.
+10. `chore(client): switch default model to minimax-m3.1-flash` — improved latency and function-calling reliability.
+11. `feat(tui): add terminal theme and rendering helpers` — ANSI 24-bit theme and colored diff renderer.
+12. `feat(tui): add TUI-integrated approval manager` — channel-synchronized Bubble Tea approval bridge.
+13. `feat(tui): add full-screen interactive chat TUI` — Bubble Tea Model with real-time streaming, diff inspection, and keyboard shortcuts.
+14. `test(tui): cover TUI model interactions` — automated tests for keyboard input, approvals, rejections, and window resize.
+15. `feat: wire TUI mode and add -tui flag` — `-tui` CLI flag in `main.go` and module dependency updates.
+16. `docs: document approval architecture, TUI workflow, and updated features` — updated `architecture.md`, `tools.md`, `decisions.md`, and `README.md`.

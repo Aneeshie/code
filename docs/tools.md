@@ -26,15 +26,29 @@ type Tool interface {
     Execute(ctx context.Context, input string) (string, error)
 }
 
-// Optional. Tools that change the workspace implement it.
+// Optional. Tools that change the workspace implement Mutator and Planner.
 type Mutator interface {
     Mutates() bool
+}
+
+type Planner interface {
+    Plan(ctx context.Context, input string) (*Plan, error)
 }
 ```
 
 A tool receives its arguments as a raw JSON string from the model and returns a string result or an error. The agent never crashes on a tool error: it sends `Tool call failed: <error>` back to the model as the tool result, so the model can correct itself.
 
 Each tool owns its schema (`InputSchema`) so the schema and the argument parsing live in the same file and cannot drift apart. The agent converts schemas into `client.ToolDefinition`s, and the OpenRouter client converts those into SDK types.
+
+### The `Planner` Pattern and Concurrency Guards
+
+Tools that modify workspace files (`write_file`, `edit_file`, `delete_file`) implement `Planner`. Instead of immediately performing side-effects, `Plan(ctx, input)`:
+1. Validates arguments and checks permissions/paths.
+2. Snapshots the affected files' current disk state.
+3. Computes exact unified diffs (`permissions.FileChange`).
+4. Bundles an optimistic concurrency guard (`verifyAll`) and a commit closure into a `*Plan`.
+
+The `Registry.Execute` method acts as the approval gateway. It calls `Plan()`, passes the proposed changes to the configured `permissions.Manager`, and only calls `Plan.Apply()` if approved. Prior to writing, `Plan.Apply()` executes the guard to verify no file changed on disk while waiting for approval. If the user declined, it returns `ErrRejected`.
 
 ## Behaviour shared by all tools
 
