@@ -19,11 +19,11 @@ const (
 
 var (
 	// Brand & Accents
-	colBrand  = "\x1b[38;2;167;139;250m" // #a78bfa (Soft Violet)
-	colUser   = "\x1b[38;2;56;189;248m"  // #38bdf8 (Sky Cyan)
-	colTool   = "\x1b[38;2;251;191;36m"  // #fbbf24 (Warm Amber)
-	colGreen  = "\x1b[38;2;52;211;153m"  // #34d399 (Emerald)
-	colRed    = "\x1b[38;2;248;113;113m" // #f87171 (Soft Red)
+	colBrand = "\x1b[38;2;167;139;250m" // #a78bfa (Soft Violet)
+	colUser  = "\x1b[38;2;56;189;248m"  // #38bdf8 (Sky Cyan)
+	colTool  = "\x1b[38;2;251;191;36m"  // #fbbf24 (Warm Amber)
+	colGreen = "\x1b[38;2;52;211;153m"  // #34d399 (Emerald)
+	colRed   = "\x1b[38;2;248;113;113m" // #f87171 (Soft Red)
 
 	// Neutrals
 	colBorder = "\x1b[38;2;51;65;85m"    // #334155 (Dark Slate)
