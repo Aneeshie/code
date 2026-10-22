@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Aneeshie/zerrcode/internal/permissions"
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 )
 
@@ -86,39 +87,66 @@ type plannedEdit struct {
 	oldPath string // absolute; empty for creates
 	newPath string // absolute; empty for deletes
 	content []byte
+	before  []byte // content before the edit; empty for creates
+	relOld  string // workspace-relative old path
+	relNew  string // workspace-relative new path
 	mode    os.FileMode
 }
 
+// fileChange describes the edit for display and approval. The diff is computed
+// from the real before and after contents.
+func (e plannedEdit) fileChange() permissions.FileChange {
+	switch e.kind {
+	case editCreate:
+		return change(permissions.OpCreate, e.relNew, "", "", string(e.content))
+	case editDelete:
+		return change(permissions.OpDelete, e.relOld, "", string(e.before), "")
+	case editRename:
+		return change(permissions.OpRename, e.relNew, e.relOld, string(e.before), string(e.content))
+	default:
+		return change(permissions.OpModify, e.relNew, "", string(e.before), string(e.content))
+	}
+}
+
 func (t *EditFileTool) Execute(ctx context.Context, input string) (string, error) {
+	plan, err := t.Plan(ctx, input)
+	if err != nil {
+		return "", err
+	}
+	return plan.Apply(ctx)
+}
+
+// Plan validates the patch and computes every result in memory without writing.
+func (t *EditFileTool) Plan(ctx context.Context, input string) (*Plan, error) {
 	var inputs EditFileInput
 
 	decoder := json.NewDecoder(strings.NewReader(input))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&inputs); err != nil {
-		return "", fmt.Errorf("decode edit_file input: %w", err)
+		return nil, fmt.Errorf("decode edit_file input: %w", err)
 	}
 	if err := decoder.Decode(&json.RawMessage{}); err != io.EOF {
-		return "", fmt.Errorf("decode edit_file input: multiple json values")
+		return nil, fmt.Errorf("decode edit_file input: multiple json values")
 	}
 
 	if strings.TrimSpace(inputs.Patch) == "" {
-		return "", fmt.Errorf("patch is required")
+		return nil, fmt.Errorf("patch is required")
 	}
 
 	if strings.TrimSpace(t.Root) == "" {
-		return "", fmt.Errorf("root is required")
+		return nil, fmt.Errorf("root is required")
 	}
 
 	files, _, err := gitdiff.Parse(strings.NewReader(inputs.Patch))
 	if err != nil {
-		return "", fmt.Errorf("parse patch: %w", err)
+		return nil, fmt.Errorf("parse patch: %w", err)
 	}
 
 	if len(files) == 0 {
-		return "", fmt.Errorf("patch contains no file changes")
+		return nil, fmt.Errorf("patch contains no file changes")
 	}
 	if len(files) > maxPatchFiles {
-		return "", fmt.Errorf("patch touches %d files, max is %d", len(files), maxPatchFiles)
+		return nil, fmt.Errorf("patch touches %d files, max is %d", len(files), maxPatchFiles)
 	}
 
 	// Phase 1: validate every file and compute every result in memory. Nothing
@@ -130,31 +158,49 @@ func (t *EditFileTool) Execute(ctx context.Context, input string) (string, error
 	for i, file := range files {
 		edit, err := t.planEdit(file, gitFormat, seen)
 		if err != nil {
-			return "", fmt.Errorf("file %d of %d: %w", i+1, len(files), err)
+			return nil, fmt.Errorf("file %d of %d: %w", i+1, len(files), err)
 		}
 		edits = append(edits, edit)
 	}
 
 	select {
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return nil, ctx.Err()
 	default:
 	}
 
-	// Phase 2: write the results.
-	var summary []string
-	for i, edit := range edits {
-		if err := commitEdit(edit); err != nil {
-			applied := ""
-			if i > 0 {
-				applied = fmt.Sprintf(" (%d earlier file(s) were already written: %s)", i, strings.Join(summary, ", "))
-			}
-			return "", fmt.Errorf("write %s: %w%s", edit.name, err, applied)
+	// The plan is applied in phase 2, after approval. Guards ensure no
+	// affected file changed in between.
+	var states []fileState
+	var changes []permissions.FileChange
+	for _, e := range edits {
+		changes = append(changes, e.fileChange())
+		if e.oldPath != "" {
+			states = append(states, fileState{path: e.oldPath, exists: true, content: e.before})
 		}
-		summary = append(summary, edit.describe())
+		if e.kind == editCreate || e.kind == editRename {
+			states = append(states, fileState{path: e.newPath})
+		}
 	}
 
-	return strings.Join(summary, "\n"), nil
+	return &Plan{
+		Changes: changes,
+		guard:   verifyAll(states),
+		commit: func() (string, error) {
+			var summary []string
+			for i, edit := range edits {
+				if err := commitEdit(edit); err != nil {
+					applied := ""
+					if i > 0 {
+						applied = fmt.Sprintf(" (%d earlier file(s) were already written: %s)", i, strings.Join(summary, ", "))
+					}
+					return "", fmt.Errorf("write %s: %w%s", edit.name, err, applied)
+				}
+				summary = append(summary, edit.describe())
+			}
+			return strings.Join(summary, "\n"), nil
+		},
+	}, nil
 }
 
 func (e plannedEdit) describe() string {
@@ -207,7 +253,7 @@ func (t *EditFileTool) planEdit(file *gitdiff.File, gitFormat bool, seen map[str
 		newPath = p
 	}
 
-	edit := plannedEdit{oldPath: oldPath, newPath: newPath}
+	edit := plannedEdit{oldPath: oldPath, newPath: newPath, relOld: oldName, relNew: newName}
 
 	switch {
 	case file.IsNew:
@@ -279,6 +325,7 @@ func (t *EditFileTool) planEdit(file *gitdiff.File, gitFormat bool, seen map[str
 		return plannedEdit{}, fmt.Errorf("apply patch to %s: %w. %s", edit.name, err, patchRetryGuidance(oldName, newName, edit.kind))
 	}
 	edit.content = output.Bytes()
+	edit.before = original
 
 	return edit, nil
 }

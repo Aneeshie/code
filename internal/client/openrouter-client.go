@@ -95,7 +95,9 @@ func (o *OpenRouterClient) Stream(ctx context.Context, messages []Message, defin
 		content, ok := delta.Content.Get()
 
 		if ok && content != nil {
-			onText(*content)
+			if onText != nil {
+				onText(*content)
+			}
 			text.WriteString(*content)
 		}
 	}
@@ -160,7 +162,7 @@ func convertResponse(message components.ChatAssistantMessage) Response {
 
 func convertToChatRequest(messages []Message, definitions []ToolDefinition) components.ChatRequest {
 	var msgs []components.ChatMessages
-	model := "nvidia/nemotron-3.5-super-vl:free"
+	model := "minimax/minimax-m3.1-flash:free"
 	stream := true
 
 	for _, message := range messages {

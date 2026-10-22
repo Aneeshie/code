@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -10,11 +11,16 @@ import (
 
 	"github.com/Aneeshie/zerrcode/internal/agent"
 	"github.com/Aneeshie/zerrcode/internal/client"
+	"github.com/Aneeshie/zerrcode/internal/permissions"
 	"github.com/Aneeshie/zerrcode/internal/tools"
+	"github.com/Aneeshie/zerrcode/internal/tui"
 	"github.com/joho/godotenv"
 )
 
 func main() {
+	useTUI := flag.Bool("tui", false, "Start with interactive Bubble Tea TUI")
+	flag.Parse()
+
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: .env file not loaded: %v", err)
 	}
@@ -38,15 +44,25 @@ func main() {
 
 	codingAgent := agent.NewAgent(clnt, registry)
 
-	ctx := context.Background()
-	scanner := bufio.NewScanner(os.Stdin)
-
 	history := []client.Message{
 		{
 			Role:    client.RoleSystem,
 			Content: agent.SystemPrompt,
 		},
 	}
+
+	if *useTUI {
+		if err := tui.Run(codingAgent, history); err != nil {
+			log.Fatalf("TUI error: %v", err)
+		}
+		return
+	}
+
+	// For standard REPL, allow all changes without interactive TUI prompts
+	codingAgent.SetApprover(permissions.AllowAll{})
+
+	ctx := context.Background()
+	scanner := bufio.NewScanner(os.Stdin)
 
 	fmt.Println("zerrcode — type 'exit' to quit.")
 

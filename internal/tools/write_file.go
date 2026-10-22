@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Aneeshie/zerrcode/internal/permissions"
 )
 
 type WriteFileInput struct {
@@ -53,60 +55,77 @@ func (t *WriteFileTool) InputSchema() map[string]any {
 }
 
 func (t *WriteFileTool) Execute(ctx context.Context, input string) (string, error) {
+	plan, err := t.Plan(ctx, input)
+	if err != nil {
+		return "", err
+	}
+	return plan.Apply(ctx)
+}
+
+// Plan validates the request and computes the change without writing.
+func (t *WriteFileTool) Plan(ctx context.Context, input string) (*Plan, error) {
 	var args WriteFileInput
 
 	decoder := json.NewDecoder(strings.NewReader(input))
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(&args); err != nil {
-		return "", fmt.Errorf("invalid write_file arguments: %v", err)
+		return nil, fmt.Errorf("invalid write_file arguments: %v", err)
 	}
 
 	if err := decoder.Decode(&json.RawMessage{}); err != io.EOF {
 		if err == nil {
-			return "", fmt.Errorf("invalid write_file arguments: multiple json values")
+			return nil, fmt.Errorf("invalid write_file arguments: multiple json values")
 		}
-		return "", fmt.Errorf("invalid write_file arguments: %w", err)
+		return nil, fmt.Errorf("invalid write_file arguments: %w", err)
 	}
 
 	if strings.TrimSpace(args.Path) == "" {
-		return "", fmt.Errorf("path is required")
+		return nil, fmt.Errorf("path is required")
 	}
 
 	path, err := resolveInWorkspace(t.Root, args.Path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	perm := os.FileMode(0o644)
-	existed := false
+	before := fileState{path: path}
 	if info, err := os.Stat(path); err == nil {
 		if !info.Mode().IsRegular() {
-			return "", fmt.Errorf("path is not a regular file")
+			return nil, fmt.Errorf("path is not a regular file")
 		}
 		perm = info.Mode().Perm()
-		existed = true
+		before, err = snapshot(path)
+		if err != nil {
+			return nil, fmt.Errorf("read file: %w", err)
+		}
 	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("inspect file: %w", err)
+		return nil, fmt.Errorf("inspect file: %w", err)
 	}
 
 	select {
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return nil, ctx.Err()
 	default:
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", fmt.Errorf("create parent directories: %w", err)
+	op, action := permissions.OpCreate, "created"
+	if before.exists {
+		op, action = permissions.OpModify, "updated"
 	}
 
-	if err := os.WriteFile(path, []byte(args.Content), perm); err != nil {
-		return "", fmt.Errorf("write file: %w", err)
-	}
-
-	action := "created"
-	if existed {
-		action = "updated"
-	}
-	return fmt.Sprintf("%s %s (%d bytes)", action, args.Path, len(args.Content)), nil
+	return &Plan{
+		Changes: []permissions.FileChange{change(op, args.Path, "", string(before.content), args.Content)},
+		guard:   verifyAll([]fileState{before}),
+		commit: func() (string, error) {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return "", fmt.Errorf("create parent directories: %w", err)
+			}
+			if err := os.WriteFile(path, []byte(args.Content), perm); err != nil {
+				return "", fmt.Errorf("write file: %w", err)
+			}
+			return fmt.Sprintf("%s %s (%d bytes)", action, args.Path, len(args.Content)), nil
+		},
+	}, nil
 }

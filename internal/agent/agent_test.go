@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Aneeshie/zerrcode/internal/client"
+	"github.com/Aneeshie/zerrcode/internal/permissions"
 	"github.com/Aneeshie/zerrcode/internal/tools"
 )
 
@@ -67,7 +68,11 @@ func newTestAgent(c client.LLMClient, ts ...tools.Tool) *Agent {
 	for _, tool := range ts {
 		reg.Register(tool)
 	}
-	return NewAgent(c, reg)
+	a := NewAgent(c, reg)
+	// Mutating fake tools are refused without an approver (see the registry);
+	// these tests are about loop behaviour, so approve everything.
+	a.SetApprover(permissions.AllowAll{})
+	return a
 }
 
 func userHistory() []client.Message {
