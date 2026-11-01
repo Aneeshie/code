@@ -272,7 +272,7 @@ process environment wins if both are set.
 > **Never commit your API key.** `.env` is already listed in `.gitignore`.
 
 The default model is `minimax/minimax-m3.1-flash:free`. It is set in
-`internal/client/openrouter-client.go` (`convertToChatRequest`) and can be changed to any
+`internal/client/openrouter_client.go` (`convertToChatRequest`) and can be changed to any
 model available on OpenRouter.
 
 ---
@@ -517,7 +517,7 @@ This project is honest about its edges. The full list with reasoning is in
 - **TUI coverage is the thinnest in the project** (38%). The state-machine transitions are
   well covered; the rendering layer is not.
 - **The model is a compile-time constant.** Changing it means editing
-  `internal/client/openrouter-client.go` and rebuilding — there is no env var or flag.
+  `internal/client/openrouter_client.go` and rebuilding — there is no env var or flag.
 - **`internal/client` has no unit tests.** It is a thin adapter over the OpenRouter SDK
   and is covered end-to-end against the live API instead.
 
@@ -543,7 +543,7 @@ zerrcode/
     │   └── prompt_test.go
     ├── client/
     │   ├── client.go                # LLMClient interface, Message / ToolCall types
-    │   └── openrouter-client.go     # OpenRouter SDK adapter (streaming + tool calls)
+    │   └── openrouter_client.go     # OpenRouter SDK adapter (streaming + tool calls)
     ├── diff/
     │   ├── diff.go                  # structured diff computation from real content
     │   └── diff_test.go

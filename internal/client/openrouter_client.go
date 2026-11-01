@@ -162,7 +162,7 @@ func convertResponse(message components.ChatAssistantMessage) Response {
 
 func convertToChatRequest(messages []Message, definitions []ToolDefinition) components.ChatRequest {
 	var msgs []components.ChatMessages
-	model := "minimax/minimax-m3.1-flash:free"
+	model := "nvidia/nemotron-3.5-super-vl:free"
 	stream := true
 
 	for _, message := range messages {
